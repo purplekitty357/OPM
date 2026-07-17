@@ -124,8 +124,6 @@
         let laserOn = false;
         let magneticStrength = 0;
         let time = 0; // 나선형 빛과 세차운동 애니메이션을 위한 프레임 카운터
-        const pumpInterval = 90; // 광펌핑 펄스 주기(프레임): 이 주기마다 스핀을 레이저 축(0도)으로 재정렬
-        let framesSincePump = 0;
         
         // 원자 기체 세포 영역 (Vapor Cell)
         const cell = { x: 240, y: 100, width: 220, height: 220 };
@@ -152,7 +150,10 @@
         function toggleLaser() {
             laserOn = !laserOn;
             if (laserOn) {
-                framesSincePump = pumpInterval; // 레이저를 켜면 다음 프레임에 바로 정렬 펄스가 일어나도록 함
+                // 레이저를 켜는 순간, 무작위였던 스핀들을 즉시 레이저 축으로 정렬시킨다 (광펌핑 시작).
+                // 이건 사용자가 스위치를 누른 그 순간의 1회성 변화라 자연스러운 "끊김"이며,
+                // 아래처럼 회전 도중에 매끄러움을 깨는 주기적 재정렬과는 다르다.
+                atoms.forEach(atom => { atom.angle = 0; });
             }
             const btn = document.getElementById('laserBtn');
             btn.innerText = `펌핑 레이저: ${laserOn ? 'ON' : 'OFF'}`;
@@ -320,20 +321,10 @@
             ctx.fillText("자기장원 (자석)", magX - 35, magY + 25);
 
             // 4. 원자 물리 연산
-            // 라머 세차운동: 자기장 세기에 정비례하는 각속도로, 레이저 on/off와 무관하게
-            // 항상 연속적으로 일어난다 (임계 현상 없이 자기장 세기에 선형 비례).
+            // 라머 세차운동: 자기장 세기에 정비례하는 각속도로 계속 회전한다
+            // (임계 현상 없이 자기장 세기에 선형 비례).
             const larmorK = 0.0015;
             const larmorFreq = magneticStrength * larmorK;
-
-            // 광펌핑은 오직 원형 편광 레이저가 향하는 고정된 축(각도 0)으로만 스핀을 정렬시킨다.
-            // 연속적인 복원력으로 구현하면 세차운동과 서로 상쇄되어 임계 현상이 생기므로,
-            // 대신 일정 주기(pumpInterval)마다 스핀을 레이저 축으로 순간 재정렬시키는 펌핑
-            // 펄스로 구현한다. 펄스 사이 구간에는 정렬력이 전혀 작용하지 않고 순수 세차운동만
-            // 적용되므로, 정렬은 항상 레이저 축 방향으로만 일어나면서도 세차운동 속도는 항상
-            // 자기장 세기에 비례해 연속적으로 나타난다.
-            framesSincePump++;
-            const pumpPulse = laserOn && framesSincePump >= pumpInterval;
-            if (pumpPulse) framesSincePump = 0;
 
             let totalAlignment = 0;
 
@@ -343,12 +334,20 @@
                 if (atom.x < cell.x + atom.radius || atom.x > cell.x + cell.width - atom.radius) atom.vx *= -1;
                 if (atom.y < cell.y + atom.radius || atom.y > cell.y + cell.height - atom.radius) atom.vy *= -1;
 
-                if (pumpPulse) {
-                    // 펌핑 펄스: 스핀을 레이저 축(0도)으로 즉시 재정렬
-                    atom.angle = 0;
-                } else if (laserOn) {
-                    // 펄스 사이에는 정렬력 없이 자기장에 의한 세차운동만 적용
-                    atom.angle += larmorFreq;
+                if (laserOn) {
+                    if (magneticStrength > 0) {
+                        // 자기장이 있으면 스핀은 레이저 축을 기준으로 계속 자유롭게 세차운동한다.
+                        // 회전이 매 주기마다 그 축을 자연스럽게 통과하므로, 도중에 강제로
+                        // 재정렬(순간 리셋)할 필요가 없어 끊김 없이 매끈하게 이어진다.
+                        atom.angle += larmorFreq;
+                    } else {
+                        // 자기장이 없을 때만 광펌핑이 스핀을 레이저 축(0도)으로 부드럽게 붙잡아 둔다.
+                        // 이때는 세차운동이 동시에 작용하지 않으므로(둘이 같은 프레임에서
+                        // 경쟁하지 않음) 임계 현상 없이 항상 매끄럽게 수렴한다.
+                        let diff = 0 - atom.angle;
+                        diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+                        atom.angle += diff * 0.1;
+                    }
                 } else {
                     // 레이저가 꺼지면 정렬 자체가 없으므로 각 원자는 독립적으로 무작위 확산
                     atom.angle += (Math.random() - 0.5) * 0.05;
