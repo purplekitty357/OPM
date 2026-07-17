@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>광학 펌핑 자력계(OPM) 원리 시뮬레이션 - 슬라이더 버전</title>
+    <style>
+        body {
+            font-family: 'Malgun Gothic', sans-serif;
+            background-color: #f5f5f5;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px;
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        #canvas-container {
+            position: relative;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+            background-color: white;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        canvas {
+            display: block;
+        }
+        #control-panel {
+            margin-top: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 15px;
+            background: #e0e0e0;
+            padding: 15px 30px;
+            border-radius: 20px;
+            width: 500px;
+        }
+        .control-row {
+            display: flex;
+            align-items: center;
+            width: 100%;
+            justify-content: space-between;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 15px;
+            font-weight: bold;
+            border: none;
+            border-radius: 20px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-off { background-color: #e74c3c; color: white; }
+        .btn-on { background-color: #2ecc71; color: white; }
+        
+        .slider-container {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            flex-grow: 1;
+            margin-left: 20px;
+        }
+        .slider-container label {
+            font-weight: bold;
+            font-size: 15px;
+            min-width: 140px;
+        }
+        input[type=range] {
+            flex-grow: 1;
+            cursor: pointer;
+        }
+        #info-panel {
+            margin-top: 15px;
+            font-size: 14px;
+            color: #555;
+            text-align: center;
+            max-width: 760px;
+            line-height: 1.5;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>광학 펌핑 자력계 (Optically Pumped Magnetometer)</h1>
+    
+    <div id="canvas-container">
+        <canvas id="simCanvas" width="800" height="450"></canvas>
+    </div>
+
+    <div id="control-panel">
+        <div class="control-row">
+            <button id="laserBtn" class="btn-off" onclick="toggleLaser()">펌핑 레이저: OFF</button>
+            
+            <div class="slider-container">
+                <label for="magSlider">자기장 접근도: <span id="magVal">0</span>%</label>
+                <input type="range" id="magSlider" min="0" max="100" value="0" oninput="updateMagneticField(this.value)">
+            </div>
+        </div>
+    </div>
+
+    <div id="info-panel">
+        <strong>[실험 방법]</strong><br>
+        1. <strong>레이저 ON</strong>을 누르면 원자 스핀들이 빛 방향으로 정렬되며 투과 신호(Signal)가 최대로 상승합니다.<br>
+        2. 우측의 <strong>자기장 접근도 슬라이더</strong>를 오른쪽으로 밀면, 막대자석이 기체 세포에 가까워집니다.<br>
+        3. 자석이 가까워질수록 자기장이 세져 원자들의 <strong>세차운동(회전) 속도가 빨라지고 신호가 격렬하게 출렁입니다.</strong>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('simCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // 상태 변수
+        let laserOn = false;
+        let magneticStrength = 0; // 0 (제일 멂) ~ 100 (제일 가까움)
+        
+        // 원자 기체 세포 영역 (Vapor Cell)
+        const cell = { x: 240, y: 100, width: 220, height: 220 };
+        
+        // 원자 데이터 생성 (20개)
+        const atoms = [];
+        const numAtoms = 20;
+        for (let i = 0; i < numAtoms; i++) {
+            atoms.push({
+                x: cell.x + 20 + Math.random() * (cell.width - 40),
+                y: cell.y + 20 + Math.random() * (cell.height - 40),
+                vx: (Math.random() - 0.5) * 0.8,
+                vy: (Math.random() - 0.5) * 0.8,
+                angle: Math.random() * Math.PI * 2,
+                radius: 6
+            });
+        }
+
+        // 신호 데이터 기록용 (그래프)
+        let signalHistory = Array(150).fill(20);
+        let currentSignal = 20;
+
+        // UI 제어 함수
+        function toggleLaser() {
+            laserOn = !laserOn;
+            const btn = document.getElementById('laserBtn');
+            btn.innerText = `펌핑 레이저: ${laserOn ? 'ON' : 'OFF'}`;
+            btn.className = laserOn ? 'btn-on' : 'btn-off';
+        }
+
+        function updateMagneticField(val) {
+            magneticStrength = parseInt(val);
+            document.getElementById('magVal').innerText = val;
+        }
+
+        // 화살표 그리기 함수
+        function drawArrow(x, y, angle, length, color) {
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 2;
+            ctx.fillStyle = color;
+            
+            ctx.beginPath();
+            let ex = x + Math.cos(angle) * length;
+            let ey = y + Math.sin(angle) * length;
+            ctx.moveTo(x, y);
+            ctx.lineTo(ex, ey);
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.arc(ex, ey, 3, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        // 메인 애니메이션 루프
+        function animate() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // 1. 장치 배경 그리기
+            // 펌핑 레이저
+            ctx.fillStyle = '#333';
+            ctx.fillRect(30, 180, 70, 40);
+            ctx.fillStyle = '#555';
+            ctx.fillRect(100, 190, 15, 20);
+            ctx.fillStyle = 'black';
+            ctx.font = '12px sans-serif';
+            ctx.fillText("펌핑 레이저", 35, 240);
+
+            // 포토다이오드
+            ctx.beginPath();
+            ctx.arc(560, 200, 25, 0, Math.PI * 2);
+            ctx.fillStyle = '#444';
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(555, 200, 20, 0, Math.PI * 2);
+            ctx.fillStyle = '#ddd';
+            ctx.fill();
+            ctx.fillStyle = 'black';
+            ctx.fillText("포토다이오드", 525, 245);
+
+            // 기체 세포
+            ctx.strokeStyle = '#aaa';
+            ctx.lineWidth = 3;
+            ctx.fillStyle = 'rgba(240, 240, 250, 0.5)';
+            ctx.fillRect(cell.x, cell.y, cell.width, cell.height);
+            ctx.strokeRect(cell.x, cell.y, cell.width, cell.height);
+            ctx.fillStyle = '#666';
+            ctx.fillText("알칼리 기체 세포 (Alkali Vapor Cell)", cell.x, cell.y - 10);
+
+            // 2. 레이저 빔 시각화
+            if (laserOn) {
+                let beamGrad = ctx.createLinearGradient(115, 200, 535, 200);
+                beamGrad.addColorStop(0, 'rgba(241, 196, 15, 0.8)');
+                beamGrad.addColorStop(0.4, 'rgba(241, 196, 15, 0.4)');
+                beamGrad.addColorStop(1, 'rgba(241, 196, 15, 0.15)');
+                ctx.fillStyle = beamGrad;
+                ctx.fillRect(115, 190, 420, 20);
+            }
+
+            // 3. 자석 위치 계산 및 그리기 (슬라이더 연동)
+            // 0%일 때는 화면 구석(740, 380), 100%일 때는 세포 근처(500, 290)로 이동
+            let magX = 740 - (magneticStrength * 2.4);
+            let magY = 380 - (magneticStrength * 0.9);
+
+            // 자기장 선 (자석이 조금이라도 접근하면 보임)
+            if (magneticStrength > 0) {
+                ctx.save();
+                ctx.globalAlpha = magneticStrength / 100 * 0.7;
+                ctx.strokeStyle = 'rgba(52, 152, 219, 0.5)';
+                ctx.lineWidth = 1.5;
+                // 타원형 자기장 루프선 표현
+                for (let r = 20; r <= 60; r += 15) {
+                    ctx.beginPath();
+                    ctx.ellipse(magX, magY, r * 1.5, r, Math.PI / 6, 0, Math.PI * 2);
+                    ctx.stroke();
+                }
+                ctx.restore();
+            }
+
+            // 막대자석 본체 그리기 (그림 C 스타일)
+            ctx.save();
+            ctx.translate(magX, magY);
+            ctx.rotate(-Math.PI / 6); // 비스듬히 배치
+            
+            // N극 (빨강)
+            ctx.fillStyle = '#e74c3c';
+            ctx.fillRect(-25, -10, 25, 20);
+            // S극 (파랑)
+            ctx.fillStyle = '#3498db';
+            ctx.fillRect(0, -10, 25, 20);
+            
+            // 글자
+            ctx.fillStyle = '#fff';
+            ctx.font = 'bold 11px sans-serif';
+            ctx.fillText("N", -18, 5);
+            ctx.fillText("S", 8, 5);
+            ctx.restore();
+            
+            ctx.fillStyle = '#333';
+            ctx.font = '11px sans-serif';
+            ctx.fillText("자기장원 (자석)", magX - 35, magY + 25);
+
+            // 4. 원자 물리 연산
+            let totalAlignment = 0;
+
+            atoms.forEach(atom => {
+                // 세포 벽 충돌 검사
+                atom.x += atom.vx;
+                atom.y += atom.vy;
+                if (atom.x < cell.x + atom.radius || atom.x > cell.x + cell.width - atom.radius) atom.vx *= -1;
+                if (atom.y < cell.y + atom.radius || atom.y > cell.y + cell.height - atom.radius) atom.vy *= -1;
+
+                // 스핀 각도 변화 제어
+                if (laserOn) {
+                    // 레이저가 켜진 경우: 0도 방향으로 정렬하려는 힘
+                    let diff = 0 - atom.angle;
+                    diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+                    atom.angle += diff * 0.03; 
+
+                    // 자기장이 접근한 경우: 세차운동 유도 (회전 속도는 자기장 세기에 비례)
+                    if (magneticStrength > 0) {
+                        atom.angle += 0.002 * magneticStrength; 
+                    }
+                } else {
+                    // 레이저가 꺼진 경우
+                    if (magneticStrength > 0) {
+                        // 자석만 있으면 순수 세차운동만 일어남
+                        atom.angle += 0.002 * magneticStrength;
+                    } else {
+                        // 아무것도 없으면 열적 무작위 방황
+                        atom.angle += (Math.random() - 0.5) * 0.05;
+                    }
+                }
+
+                // 원자 렌더링
+                ctx.beginPath();
+                ctx.arc(atom.x, atom.y, atom.radius, 0, Math.PI * 2);
+                ctx.fillStyle = '#e74c3c';
+                ctx.fill();
+                
+                drawArrow(atom.x, atom.y, atom.angle, 16, '#c0392b');
+
+                // 레이저 축(0도)과의 일치도 누적
+                totalAlignment += Math.cos(atom.angle);
+            });
+
+            // 5. 투과 신호 및 그래프 계산
+            let alignmentRatio = (totalAlignment / numAtoms + 1) / 2; 
+            
+            if (laserOn) {
+                currentSignal = 40 + alignmentRatio * 90;
+            } else {
+                currentSignal = currentSignal * 0.9 + 20 * 0.1;
+            }
+
+            signalHistory.push(currentSignal);
+            signalHistory.shift();
+
+            // 6. 우측 상단 미니 그래프 렌더링
+            ctx.strokeStyle = '#333';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(610, 40, 160, 80);
+            ctx.fillStyle = '#fafafa';
+            ctx.fillRect(610, 40, 160, 80);
+            
+            ctx.beginPath();
+            ctx.strokeStyle = laserOn ? '#2ecc71' : '#7f8c8d';
+            ctx.lineWidth = 2;
+            for(let i=0; i<signalHistory.length; i++) {
+                let gx = 610 + (i / signalHistory.length) * 160;
+                let gy = 120 - (signalHistory[i] / 150) * 80;
+                if(i===0) ctx.moveTo(gx, gy);
+                else ctx.lineTo(gx, gy);
+            }
+            ctx.stroke();
+            
+            ctx.fillStyle = '#333';
+            ctx.font = '11px sans-serif';
+            ctx.fillText("빛 투과 신호 (Signal)", 615, 35);
+
+            requestAnimationFrame(animate);
+        }
+
+        animate();
+    </script>
+</body>
+</html>
