@@ -122,8 +122,9 @@
 
         // 상태 변수
         let laserOn = false;
-        let magneticStrength = 0; 
+        let magneticStrength = 0;
         let time = 0; // 나선형 빛과 세차운동 애니메이션을 위한 프레임 카운터
+        let targetAngle = 0; // 자기장에 의해 세차운동하는 기준 위상 (레이저 on/off와 무관하게 연속 회전)
         
         // 원자 기체 세포 영역 (Vapor Cell)
         const cell = { x: 240, y: 100, width: 220, height: 220 };
@@ -204,14 +205,14 @@
             ctx.fillStyle = 'black';
             ctx.fillText("포토다이오드", 525, 245);
 
-            // 기체 세포
+            // 기체 셀
             ctx.strokeStyle = '#aaa';
             ctx.lineWidth = 3;
             ctx.fillStyle = 'rgba(240, 240, 250, 0.5)';
             ctx.fillRect(cell.x, cell.y, cell.width, cell.height);
             ctx.strokeRect(cell.x, cell.y, cell.width, cell.height);
             ctx.fillStyle = '#666';
-            ctx.fillText("알칼리 기체 세포 (Alkali Vapor Cell)", cell.x, cell.y - 10);
+            ctx.fillText("알칼리 기체 셀 (Alkali Vapor Cell)", cell.x, cell.y - 10);
 
             // 2. 원형 편광 빔 그리기 (수정된 핵심 부분)
             if (laserOn) {
@@ -315,6 +316,12 @@
             ctx.fillText("자기장원 (자석)", magX - 35, magY + 25);
 
             // 4. 원자 물리 연산
+            // 라머 세차운동: 기준 위상(targetAngle)이 자기장 세기에 선형 비례하는 각속도로
+            // 레이저 on/off와 무관하게 항상 연속 회전한다 (임계 현상 없이 자기장 세기에 정비례).
+            const larmorK = 0.0015;
+            const larmorFreq = magneticStrength * larmorK;
+            targetAngle = (targetAngle + larmorFreq) % (Math.PI * 2);
+
             let totalAlignment = 0;
 
             atoms.forEach(atom => {
@@ -324,32 +331,27 @@
                 if (atom.y < cell.y + atom.radius || atom.y > cell.y + cell.height - atom.radius) atom.vy *= -1;
 
                 if (laserOn) {
-                    // 원형 편광의 힘으로 0도(빛의 진행축) 방향으로 정렬 수렴
-                    let diff = 0 - atom.angle;
+                    // 광펌핑 정렬력: 회전하는 targetAngle을 얼마나 빨리 따라가는지 결정하는 감쇠 계수.
+                    // 회전 속도(larmorFreq)와 추종 속도(alignDamping)가 서로 다른 역할을 하므로
+                    // 상쇄되지 않고, 자기장이 세질수록 일정한 위상 지연을 두고 계속 따라 돈다.
+                    const alignDamping = 0.08;
+                    let diff = targetAngle - atom.angle;
                     diff = Math.atan2(Math.sin(diff), Math.cos(diff));
-                    atom.angle += diff * 0.03; 
-
-                    // 자기장이 있을 때 Larmor 세차운동 발생
-                    if (magneticStrength > 0) {
-                        atom.angle += 0.002 * magneticStrength; 
-                    }
+                    atom.angle += diff * alignDamping;
                 } else {
-                    if (magneticStrength > 0) {
-                        atom.angle += 0.002 * magneticStrength;
-                    } else {
-                        atom.angle += (Math.random() - 0.5) * 0.05;
-                    }
+                    // 레이저가 꺼지면 정렬력(감쇠)이 사라지고 각 원자는 독립적으로 무작위 확산만 함
+                    atom.angle += (Math.random() - 0.5) * 0.05;
                 }
 
                 ctx.beginPath();
                 ctx.arc(atom.x, atom.y, atom.radius, 0, Math.PI * 2);
                 ctx.fillStyle = '#e74c3c';
                 ctx.fill();
-                
+
                 drawArrow(atom.x, atom.y, atom.angle, 16, '#c0392b');
                 totalAlignment += Math.cos(atom.angle);
             });
-
+            
             // 5. 투과 신호 및 그래프 계산
             let alignmentRatio = (totalAlignment / numAtoms + 1) / 2; 
             
