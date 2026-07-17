@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>광학 펌핑 자력계(OPM) 원리 시뮬레이션 - 슬라이더 버전</title>
+    <title>광학 펌핑 자력계(OPM) 원리 시뮬레이션 - 원형편광 반영</title>
     <style>
         body {
             font-family: 'Malgun Gothic', sans-serif;
@@ -101,10 +101,10 @@
     </div>
 
     <div id="info-panel">
-        <strong>[실험 방법]</strong><br>
-        1. <strong>레이저 ON</strong>을 누르면 원자 스핀들이 빛 방향으로 정렬되며 투과 신호(Signal)가 최대로 상승합니다.<br>
-        2. 우측의 <strong>자기장 접근도 슬라이더</strong>를 오른쪽으로 밀면, 막대자석이 기체 세포에 가까워집니다.<br>
-        3. 자석이 가까워질수록 자기장이 세져 원자들의 <strong>세차운동(회전) 속도가 빨라지고 신호가 격렬하게 출렁입니다.</strong>
+        <strong>[실험 방법 및 원리]</strong><br>
+        1. <strong>레이저 ON</strong>을 누르면 <strong>원형 편광(Circularly Polarized)</strong>된 빛이 방출됩니다. 빛의 전기장 벡터가 나선형으로 회전하며 진행합니다.<br>
+        2. 이 회전하는 빛의 각운동량이 원자에 전달되면서, 무작위였던 원자 스핀들이 빛의 진행 방향으로 정렬(광학 펌핑)됩니다.<br>
+        3. <strong>자기장 슬라이더</strong>를 밀어 자석을 가까이 가져가면, 정렬된 스핀들이 자기장 방향을 축으로 회전(세차운동)하며 신호가 흔들립니다.
     </div>
 
     <script>
@@ -113,7 +113,8 @@
 
         // 상태 변수
         let laserOn = false;
-        let magneticStrength = 0; // 0 (제일 멂) ~ 100 (제일 가까움)
+        let magneticStrength = 0; 
+        let time = 0; // 나선형 빛과 세차운동 애니메이션을 위한 프레임 카운터
         
         // 원자 기체 세포 영역 (Vapor Cell)
         const cell = { x: 240, y: 100, width: 220, height: 220 };
@@ -150,9 +151,9 @@
         }
 
         // 화살표 그리기 함수
-        function drawArrow(x, y, angle, length, color) {
+        function drawArrow(x, y, angle, length, color, lineWidth = 2) {
             ctx.strokeStyle = color;
-            ctx.lineWidth = 2;
+            ctx.lineWidth = lineWidth;
             ctx.fillStyle = color;
             
             ctx.beginPath();
@@ -170,9 +171,10 @@
         // 메인 애니메이션 루프
         function animate() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
+            time++;
 
             // 1. 장치 배경 그리기
-            // 펌핑 레이저
+            // 펌핑 레이저 장치
             ctx.fillStyle = '#333';
             ctx.fillRect(30, 180, 70, 40);
             ctx.fillStyle = '#555';
@@ -202,28 +204,81 @@
             ctx.fillStyle = '#666';
             ctx.fillText("알칼리 기체 세포 (Alkali Vapor Cell)", cell.x, cell.y - 10);
 
-            // 2. 레이저 빔 시각화
+            // 2. 원형 편광 빔 그리기 (수정된 핵심 부분)
             if (laserOn) {
-                let beamGrad = ctx.createLinearGradient(115, 200, 535, 200);
-                beamGrad.addColorStop(0, 'rgba(241, 196, 15, 0.8)');
-                beamGrad.addColorStop(0.4, 'rgba(241, 196, 15, 0.4)');
-                beamGrad.addColorStop(1, 'rgba(241, 196, 15, 0.15)');
+                let startX = 115;
+                let endX = 535;
+                let centerY = 200;
+
+                // 은은한 배경 광선 레이어
+                let beamGrad = ctx.createLinearGradient(startX, centerY, endX, centerY);
+                beamGrad.addColorStop(0, 'rgba(241, 196, 15, 0.3)');
+                beamGrad.addColorStop(0.5, 'rgba(241, 196, 15, 0.15)');
+                beamGrad.addColorStop(1, 'rgba(241, 196, 15, 0.05)');
                 ctx.fillStyle = beamGrad;
-                ctx.fillRect(115, 190, 420, 20);
+                ctx.fillRect(startX, centerY - 25, endX - startX, 50);
+
+                // 원형 편광 나선(Helix) 그리기 (3차원 회전 효과를 위한 2D 투영)
+                ctx.save();
+                ctx.lineWidth = 2;
+                let steps = 180;
+                let length = endX - startX;
+
+                ctx.beginPath();
+                for (let i = 0; i <= steps; i++) {
+                    let x = startX + (i / steps) * length;
+                    // 위상(Phase)에 시간 요소를 주어 파동이 오른쪽으로 이동하게 함
+                    let phase = (x * 0.08) - (time * 0.15); 
+                    let yOffset = Math.sin(phase) * 18; // 상하 진동
+                    let zCos = Math.cos(phase);        // 앞뒤 깊이 표현 (선의 투명도로 입체감 구현)
+
+                    let alpha = 0.2 + (zCos + 1) * 0.4; // 뒤에 있을 때는 흐리고, 앞에 올 때는 진하게
+                    ctx.strokeStyle = `rgba(230, 126, 34, ${alpha})`;
+
+                    if (i === 0) {
+                        ctx.moveTo(x, centerY + yOffset);
+                    } else {
+                        ctx.lineTo(x, centerY + yOffset);
+                    }
+                }
+                ctx.stroke();
+                ctx.restore();
+
+                // 원형 편광 가시화 인디케이터 (레이저 출력부 상단에 배치)
+                let indX = 170;
+                let indY = 145;
+                
+                // 회전 가이드 원
+                ctx.strokeStyle = 'rgba(230, 126, 34, 0.5)';
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.arc(indX, indY, 15, 0, Math.PI * 2);
+                ctx.stroke();
+
+                // 회전하는 전기장 벡터 화살표
+                let rotAngle = -time * 0.15; // 우원편광 방향 회전
+                drawArrow(indX, indY, rotAngle, 15, '#e67e22', 2.5);
+
+                // 인디케이터 회전 방향 화살표 머리
+                ctx.beginPath();
+                ctx.arc(indX + Math.cos(rotAngle-0.2)*15, indY + Math.sin(rotAngle-0.2)*15, 2, 0, Math.PI*2);
+                ctx.fillStyle = '#e67e22';
+                ctx.fill();
+
+                ctx.fillStyle = '#d35400';
+                ctx.font = 'bold 11px sans-serif';
+                ctx.fillText("원형 편광 (우원편광)", indX - 48, indY - 22);
             }
 
-            // 3. 자석 위치 계산 및 그리기 (슬라이더 연동)
-            // 0%일 때는 화면 구석(740, 380), 100%일 때는 세포 근처(500, 290)로 이동
+            // 3. 자석 위치 계산 및 그리기
             let magX = 740 - (magneticStrength * 2.4);
             let magY = 380 - (magneticStrength * 0.9);
 
-            // 자기장 선 (자석이 조금이라도 접근하면 보임)
             if (magneticStrength > 0) {
                 ctx.save();
                 ctx.globalAlpha = magneticStrength / 100 * 0.7;
                 ctx.strokeStyle = 'rgba(52, 152, 219, 0.5)';
                 ctx.lineWidth = 1.5;
-                // 타원형 자기장 루프선 표현
                 for (let r = 20; r <= 60; r += 15) {
                     ctx.beginPath();
                     ctx.ellipse(magX, magY, r * 1.5, r, Math.PI / 6, 0, Math.PI * 2);
@@ -232,19 +287,14 @@
                 ctx.restore();
             }
 
-            // 막대자석 본체 그리기 (그림 C 스타일)
+            // 막대자석 본체
             ctx.save();
             ctx.translate(magX, magY);
-            ctx.rotate(-Math.PI / 6); // 비스듬히 배치
-            
-            // N극 (빨강)
-            ctx.fillStyle = '#e74c3c';
+            ctx.rotate(-Math.PI / 6);
+            ctx.fillStyle = '#e74c3c'; // N
             ctx.fillRect(-25, -10, 25, 20);
-            // S극 (파랑)
-            ctx.fillStyle = '#3498db';
+            ctx.fillStyle = '#3498db'; // S
             ctx.fillRect(0, -10, 25, 20);
-            
-            // 글자
             ctx.fillStyle = '#fff';
             ctx.font = 'bold 11px sans-serif';
             ctx.fillText("N", -18, 5);
@@ -259,43 +309,35 @@
             let totalAlignment = 0;
 
             atoms.forEach(atom => {
-                // 세포 벽 충돌 검사
                 atom.x += atom.vx;
                 atom.y += atom.vy;
                 if (atom.x < cell.x + atom.radius || atom.x > cell.x + cell.width - atom.radius) atom.vx *= -1;
                 if (atom.y < cell.y + atom.radius || atom.y > cell.y + cell.height - atom.radius) atom.vy *= -1;
 
-                // 스핀 각도 변화 제어
                 if (laserOn) {
-                    // 레이저가 켜진 경우: 0도 방향으로 정렬하려는 힘
+                    // 원형 편광의 힘으로 0도(빛의 진행축) 방향으로 정렬 수렴
                     let diff = 0 - atom.angle;
                     diff = Math.atan2(Math.sin(diff), Math.cos(diff));
                     atom.angle += diff * 0.03; 
 
-                    // 자기장이 접근한 경우: 세차운동 유도 (회전 속도는 자기장 세기에 비례)
+                    // 자기장이 있을 때 Larmor 세차운동 발생
                     if (magneticStrength > 0) {
                         atom.angle += 0.002 * magneticStrength; 
                     }
                 } else {
-                    // 레이저가 꺼진 경우
                     if (magneticStrength > 0) {
-                        // 자석만 있으면 순수 세차운동만 일어남
                         atom.angle += 0.002 * magneticStrength;
                     } else {
-                        // 아무것도 없으면 열적 무작위 방황
                         atom.angle += (Math.random() - 0.5) * 0.05;
                     }
                 }
 
-                // 원자 렌더링
                 ctx.beginPath();
                 ctx.arc(atom.x, atom.y, atom.radius, 0, Math.PI * 2);
                 ctx.fillStyle = '#e74c3c';
                 ctx.fill();
                 
                 drawArrow(atom.x, atom.y, atom.angle, 16, '#c0392b');
-
-                // 레이저 축(0도)과의 일치도 누적
                 totalAlignment += Math.cos(atom.angle);
             });
 
